@@ -1,0 +1,221 @@
+erDiagram
+    USUARIO ||--o{ USUARIO_PERFIL : possui
+    PERFIL ||--o{ USUARIO_PERFIL : atribui
+    COOPERATIVA ||--o{ USUARIO_PERFIL : "admin de"
+
+    USUARIO ||--o{ VEICULO : "é proprietário"
+    COOPERATIVA ||--o{ VEICULO : "vincula (opcional)"
+
+    VEICULO ||--o{ ROTA : "tem rotas próprias"
+    COOPERATIVA ||--o{ ROTA : "tem rotas catálogo"
+
+    VEICULO ||--o{ VINCULO_COBRADOR : "tem cobradores"
+    USUARIO ||--o{ VINCULO_COBRADOR : "atua como"
+
+    VEICULO ||--o{ HORARIO_TEMPLATE : "templates próprios"
+    COOPERATIVA ||--o{ HORARIO_TEMPLATE : "templates catálogo"
+    ROTA ||--o{ HORARIO_TEMPLATE : usa
+
+    HORARIO_TEMPLATE ||--o{ EXCECAO_TEMPLATE : "tem exceções"
+    HORARIO_TEMPLATE ||--o{ VIAGEM_INSTANCIA : gera
+
+    VEICULO ||--o{ VIAGEM_INSTANCIA : opera
+    ROTA ||--o{ VIAGEM_INSTANCIA : "trafega em"
+
+    VIAGEM_INSTANCIA ||--o{ PASSAGEM : possui
+    VEICULO ||--o{ PASSAGEM : "vende (denorm)"
+    PASSAGEM ||--|| PAGAMENTO_PIX : "tem pagamento"
+    PASSAGEM ||--|| COMPROVANTE : "gera"
+
+    VIAGEM_INSTANCIA ||--|| SNAPSHOT_VIAGEM : "fecha em"
+    VEICULO ||--o{ SNAPSHOT_VIAGEM : "histórico"
+
+    VEICULO ||--|| WEBHOOK_CONFIG : "tem config"
+    WEBHOOK_CONFIG ||--o{ WEBHOOK_LOG : registra
+    PASSAGEM ||--o{ WEBHOOK_LOG : "originada por"
+
+    VEICULO ||--o{ DESPESA : possui
+    USUARIO ||--o{ DESPESA : "registrou"
+
+    USUARIO ||--o{ EVENTO_AUDITORIA : executou
+
+    USUARIO {
+        uuid id PK
+        string nome
+        string email UK
+        string telefone
+        string senha_hash
+        boolean ativo
+    }
+
+    PERFIL {
+        smallint id PK
+        string nome UK
+    }
+
+    USUARIO_PERFIL {
+        uuid usuario_id FK
+        smallint perfil_id FK
+        uuid cooperativa_id FK "null exceto ADMIN_COOP"
+    }
+
+    COOPERATIVA {
+        uuid id PK
+        string nome
+        string cnpj UK
+        string cidade
+        char uf
+        boolean ativo
+    }
+
+    VEICULO {
+        uuid id PK
+        uuid proprietario_id FK
+        uuid cooperativa_id FK "null = autônomo"
+        string placa UK
+        string modelo
+        smallint capacidade_passageiros
+        string modo_operacao "LINHA_REGULAR|SOB_DEMANDA|TAXI"
+        boolean ativo
+    }
+
+    ROTA {
+        uuid id PK
+        uuid cooperativa_id FK "XOR com veiculo_id"
+        uuid veiculo_id FK "XOR com cooperativa_id"
+        string origem
+        string destino
+        decimal distancia_km
+    }
+
+    VINCULO_COBRADOR {
+        uuid id PK
+        uuid veiculo_id FK
+        uuid usuario_id FK
+        string codigo_convite UK
+        boolean ativo
+    }
+
+    HORARIO_TEMPLATE {
+        uuid id PK
+        uuid cooperativa_id FK "XOR com veiculo_id"
+        uuid veiculo_id FK "XOR com cooperativa_id"
+        uuid rota_id FK
+        time hora_partida
+        smallint dias_semana "bitmask"
+        smallint vagas_total
+        decimal preco
+        date vigencia_inicio
+        date vigencia_fim
+    }
+
+    EXCECAO_TEMPLATE {
+        uuid id PK
+        uuid template_id FK
+        date data_excecao
+        string motivo
+    }
+
+    VIAGEM_INSTANCIA {
+        uuid id PK
+        uuid template_id FK "null para SOB_DEMANDA/TAXI"
+        uuid veiculo_id FK
+        uuid rota_id FK
+        timestamp partida_prevista
+        timestamp partida_real
+        timestamp encerrada_em
+        smallint vagas_total
+        smallint vagas_vendidas "pode > total"
+        decimal preco
+        string status "PROGRAMADA|EM_ANDAMENTO|ENCERRADA|CANCELADA"
+        bigint versao "lock otimista"
+    }
+
+    PASSAGEM {
+        uuid id PK
+        uuid viagem_id FK
+        uuid veiculo_id FK "denormalizado"
+        string canal "APP|GUICHE|MANUAL"
+        decimal valor
+        string id_externo UK "idempotência webhook"
+        string status
+        boolean overbooking
+        string passageiro_nome "opcional"
+    }
+
+    PAGAMENTO_PIX {
+        uuid id PK
+        uuid passagem_id FK
+        string txid UK
+        text qr_code
+        decimal valor
+        timestamp expira_em
+        string status
+        timestamp webhook_recebido_em
+        timestamp ultimo_polling_em
+    }
+
+    COMPROVANTE {
+        uuid id PK
+        uuid passagem_id FK
+        text imagem_url
+        boolean enviado_whatsapp
+        timestamp enviado_em
+    }
+
+    DESPESA {
+        uuid id PK
+        uuid veiculo_id FK
+        uuid registrado_por_id FK
+        string categoria
+        string descricao
+        decimal valor
+        date data_despesa
+        text comprovante_url
+    }
+
+    WEBHOOK_CONFIG {
+        uuid id PK
+        uuid veiculo_id FK,UK
+        string token_acesso UK
+        boolean ativo
+    }
+
+    WEBHOOK_LOG {
+        uuid id PK
+        uuid webhook_config_id FK
+        uuid veiculo_id FK
+        string id_externo
+        jsonb payload_recebido
+        smallint resposta_http
+        uuid passagem_id FK
+        text erro
+        timestamp recebido_em
+    }
+
+    SNAPSHOT_VIAGEM {
+        uuid id PK
+        uuid viagem_id FK,UK
+        uuid veiculo_id FK
+        string rota_origem
+        string rota_destino
+        timestamp partida_real
+        timestamp encerrada_em
+        int total_passagens
+        int total_passagens_app
+        int total_passagens_guiche
+        int total_overbooking
+        decimal receita_bruta
+        decimal receita_liquida
+    }
+
+    EVENTO_AUDITORIA {
+        uuid id PK
+        uuid usuario_id FK
+        string entidade
+        uuid entidade_id
+        string acao
+        jsonb dados_antes
+        jsonb dados_depois
+        timestamp ocorrido_em
+    }

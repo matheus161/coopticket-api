@@ -1,0 +1,131 @@
+%% =====================================================================
+%% Diagrama 1 — Venda de passagem via app (caminho feliz)
+%% =====================================================================
+
+sequenceDiagram
+    autonumber
+    actor C as Cobrador
+    participant App as App Mobile
+    participant API as API Spring Boot
+    participant DB as PostgreSQL
+    participant EFI as Gateway Pix (EFÍ)
+    actor P as Passageiro
+
+    C->>App: Seleciona viagem 06h Aracaju→Itabaiana
+    App->>API: POST /api/v1/passagens<br/>{viagem_id, valor, canal=APP}
+    API->>DB: SELECT viagem_instancia (lock @Version)
+    DB-->>API: vagas_vendidas=12, vagas_total=40
+
+    Note over API: Cria passagem em transação
+    API->>DB: INSERT passagem (status=AGUARDANDO_PAGAMENTO)
+    API->>EFI: POST /v2/cob (cria QR Code Pix dinâmico)
+    EFI-->>API: {txid, qr_code, expira_em}
+    API->>DB: INSERT pagamento_pix (status=PENDENTE)
+    API-->>App: 200 OK {passagem_id, qr_code, expira_em}
+
+    App-->>C: Mostra QR Code na tela
+    C->>P: Mostra QR Code para o passageiro
+    P->>EFI: Paga via app do banco
+
+    Note over EFI,API: Webhook do EFÍ (caminho feliz)
+    EFI->>API: POST /api/v1/webhooks/pix<br/>{txid, status=CONCLUIDA}
+    API->>API: Valida assinatura HMAC do EFÍ
+    API->>DB: UPDATE pagamento_pix SET status=PAGO
+    API->>DB: UPDATE passagem SET status=CONFIRMADA
+    API->>DB: UPDATE viagem_instancia<br/>SET vagas_vendidas=vagas_vendidas+1<br/>WHERE versao=? (lock otimista)
+    API-->>EFI: 200 OK
+
+    Note over API: Geração assíncrona do comprovante
+    API->>API: Gera PNG do comprovante
+    API-->>App: Push notification: passagem confirmada
+    App-->>C: Notifica + botão "enviar WhatsApp"
+    C->>App: Toca "enviar"
+    App->>P: Share intent → WhatsApp → comprovante PNG
+
+%% =====================================================================
+%% Diagrama 2 — Fallback de polling quando webhook do Pix falha
+%% =====================================================================
+
+sequenceDiagram
+    autonumber
+    participant Job as Job Agendado
+    participant API as API Spring Boot
+    participant DB as PostgreSQL
+    participant EFI as Gateway Pix (EFÍ)
+
+    Note over Job,EFI: Cenário: passagem criada há 2min, webhook EFÍ não chegou
+
+    loop A cada 30 segundos
+        Job->>API: verificarPixPendentes()
+        API->>DB: SELECT pagamento_pix<br/>WHERE status=PENDENTE<br/>AND criado_em < now()-30s<br/>AND ultimo_polling < now()-30s
+        DB-->>API: [lista de Pix pendentes]
+
+        loop Para cada Pix pendente (com circuit breaker)
+            API->>EFI: GET /v2/cob/{txid}
+            alt Pix foi pago
+                EFI-->>API: {status=CONCLUIDA, valor, pagador}
+                Note over API: Mesma lógica do webhook (idempotente)
+                API->>DB: UPDATE pagamento (PAGO)
+                API->>DB: UPDATE passagem (CONFIRMADA)
+                API->>DB: UPDATE viagem vagas_vendidas+1
+            else Pix ainda pendente
+                EFI-->>API: {status=ATIVA}
+                API->>DB: UPDATE pagamento.ultimo_polling=now()
+            else Pix expirado
+                EFI-->>API: {status=REMOVIDA_PELO_USUARIO_RECEBEDOR}
+                API->>DB: UPDATE pagamento (EXPIRADO)
+                API->>DB: UPDATE passagem (EXPIRADA)
+                Note over API: Vagas não foram decrementadas ainda<br/>(só decrementam quando confirma)
+            end
+        end
+    end
+
+    Note over EFI,API: Webhook tardio chega DEPOIS do polling
+    EFI->>API: POST /webhooks/pix {status=CONCLUIDA}
+    API->>DB: UPDATE pagamento (PAGO)<br/>WHERE status != PAGO
+    Note over API: Idempotente — UPDATE não afeta linha já PAGA
+    API-->>EFI: 200 OK
+
+%% =====================================================================
+%% Diagrama 3 — Venda via guichê com webhook da cooperativa
+%% =====================================================================
+
+sequenceDiagram
+    autonumber
+    participant SC as Sistema da Cooperativa
+    participant API as API Spring Boot
+    participant DB as PostgreSQL
+    participant App as App do Cobrador
+
+    Note over SC,App: Cenário: viagem 06h tem 38/40 vagas, guichê vende mais
+
+    SC->>API: POST /api/v1/integracao/passagem-guiche<br/>Authorization: Bearer {token_veiculo}<br/>{id_externo, viagem_data, viagem_hora, rota_id, valor}
+
+    API->>API: Valida token do veículo
+
+    Note over API,DB: Verifica idempotência por id_externo
+    API->>DB: SELECT passagem WHERE id_externo='VND-9981'
+
+    alt Já existe (chamada duplicada)
+        DB-->>API: passagem encontrada
+        API->>DB: INSERT webhook_log (resposta_http=409)
+        API-->>SC: 409 Conflict {passagem_id_existente}
+    else Não existe (primeira chamada)
+        DB-->>API: vazio
+        API->>DB: SELECT/upsert viagem_instancia<br/>(data+hora+veiculo)
+        DB-->>API: vagas_vendidas=38, vagas_total=40
+
+        Note over API: Vaga 39 ainda dentro do limite — overbooking=false
+        API->>DB: INSERT passagem<br/>(canal=GUICHE, id_externo, overbooking=false)
+        API->>DB: UPDATE viagem vagas_vendidas+1 (@Version)
+        API->>DB: INSERT webhook_log (resposta_http=201)
+        API-->>SC: 201 Created {passagem_id}
+
+        Note over API,App: Notifica cobrador em campo
+        API-->>App: Push: vagas atualizadas
+        App-->>App: Mostra "39/40 vagas — 1 vendida no guichê"
+    end
+
+    Note over App,DB: Se cobrador vender mais 2 no app (vagas 40 e 41)
+    Note over App,DB: Vaga 41: registra com overbooking=true
+    Note over App,DB: Reconciliação no fechamento: snapshot registra 41 passagens,<br/>1 marcada como overbooking

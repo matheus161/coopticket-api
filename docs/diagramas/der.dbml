@@ -1,0 +1,440 @@
+// =====================================================================
+// DER - Sistema de Gestão de Passagens para Transporte
+// Formato: DBML (dbdiagram.io)
+// Como usar: cole o conteúdo em https://dbdiagram.io/d
+// =====================================================================
+
+// ---------- USUÁRIOS E AUTENTICAÇÃO ----------
+
+Table usuario {
+  id uuid [pk]
+  nome varchar(120) [not null]
+  email varchar(160) [unique, not null]
+  telefone varchar(20)
+  senha_hash varchar(255) [not null]
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  Note: 'Pessoa física que acessa o sistema. Mesmo usuário pode ter múltiplos perfis.'
+}
+
+Table perfil {
+  id smallint [pk]
+  nome varchar(40) [unique, not null]
+  // Valores: ADMIN_PLATAFORMA, ADMIN_COOPERATIVA, PROPRIETARIO,
+  //          GESTOR_OPERACIONAL, COBRADOR, MOTORISTA_AUTONOMO
+  Note: 'Catálogo de perfis do sistema'
+}
+
+Table usuario_perfil {
+  usuario_id uuid [ref: > usuario.id]
+  perfil_id smallint [ref: > perfil.id]
+  cooperativa_id uuid [ref: > cooperativa.id, null]
+  // cooperativa_id usado apenas para perfil ADMIN_COOPERATIVA
+
+  indexes {
+    (usuario_id, perfil_id, cooperativa_id) [pk]
+  }
+
+  Note: 'N:N entre usuário e perfis. Mesmo usuário pode ser proprietário e cobrador.'
+}
+
+// ---------- COOPERATIVA ----------
+
+Table cooperativa {
+  id uuid [pk]
+  nome varchar(160) [not null]
+  cnpj varchar(20) [unique]
+  cidade varchar(120)
+  uf char(2)
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+
+  Note: 'Catálogo de cooperativas. Não tem hierarquia sobre usuários — é só um agrupador de rotas/horários compartilhados.'
+}
+
+// ---------- VEÍCULO (entidade central) ----------
+
+Table veiculo {
+  id uuid [pk]
+  proprietario_id uuid [ref: > usuario.id, not null]
+  cooperativa_id uuid [ref: > cooperativa.id, null]
+  // null = veículo autônomo, não vinculado a cooperativa
+
+  placa varchar(10) [unique, not null]
+  modelo varchar(80)
+  ano smallint
+  capacidade_passageiros smallint [not null]
+
+  modo_operacao varchar(20) [not null]
+  // Valores: LINHA_REGULAR, SOB_DEMANDA, TAXI
+
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    proprietario_id
+    cooperativa_id
+    (cooperativa_id, ativo)
+  }
+
+  Note: 'ENTIDADE CENTRAL. Toda tabela operacional referencia veiculo_id direta ou indiretamente.'
+}
+
+// ---------- ROTAS ----------
+
+Table rota {
+  id uuid [pk]
+  cooperativa_id uuid [ref: > cooperativa.id, null]
+  veiculo_id uuid [ref: > veiculo.id, null]
+  // EXATAMENTE UM dos dois deve estar preenchido (CHECK constraint)
+  // - cooperativa_id != null: rota da cooperativa, herdada por todos os veículos vinculados
+  // - veiculo_id != null: rota própria do veículo (autônomo ou customização)
+
+  origem varchar(120) [not null]
+  destino varchar(120) [not null]
+  distancia_km decimal(7,2)
+  duracao_estimada_min smallint
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    cooperativa_id
+    veiculo_id
+    (origem, destino)
+  }
+
+  Note: 'CHECK: (cooperativa_id IS NOT NULL) <> (veiculo_id IS NOT NULL)'
+}
+
+// ---------- VÍNCULO DE COBRADOR ----------
+
+Table vinculo_cobrador {
+  id uuid [pk]
+  veiculo_id uuid [ref: > veiculo.id, not null]
+  usuario_id uuid [ref: > usuario.id, not null]
+  codigo_convite varchar(20) [unique]
+  // gerado pelo proprietário, usado uma vez para vincular
+  ativo boolean [not null, default: true]
+  vinculado_em timestamptz [not null, default: `now()`]
+  desvinculado_em timestamptz
+
+  indexes {
+    veiculo_id
+    usuario_id
+    (veiculo_id, usuario_id, ativo) [unique]
+  }
+
+  Note: 'Vincula um usuário como cobrador de um veículo específico. Mesmo usuário pode ser cobrador de vários veículos.'
+}
+
+// ---------- HORÁRIOS (template recorrente) ----------
+
+Table horario_template {
+  id uuid [pk]
+  cooperativa_id uuid [ref: > cooperativa.id, null]
+  veiculo_id uuid [ref: > veiculo.id, null]
+  // EXATAMENTE UM dos dois deve estar preenchido (CHECK)
+
+  rota_id uuid [ref: > rota.id, not null]
+
+  hora_partida time [not null]
+  // dias da semana como bitmask ou lista: dom=1, seg=2, ter=4, qua=8, qui=16, sex=32, sab=64
+  // ex: seg-sex = 2+4+8+16+32 = 62
+  dias_semana smallint [not null]
+
+  vagas_total smallint [not null]
+  preco decimal(10,2) [not null]
+
+  vigencia_inicio date [not null]
+  vigencia_fim date
+  // null = sem data fim
+
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    cooperativa_id
+    veiculo_id
+    rota_id
+    (ativo, vigencia_inicio, vigencia_fim)
+  }
+
+  Note: 'Grade recorrente. Job diário gera viagem_instancia para os próximos 7 dias. Aplica-se apenas a veículos modo LINHA_REGULAR.'
+}
+
+Table excecao_template {
+  id uuid [pk]
+  template_id uuid [ref: > horario_template.id, not null]
+  data_excecao date [not null]
+  motivo varchar(120)
+  criado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (template_id, data_excecao) [unique]
+  }
+
+  Note: 'Datas em que o template não deve gerar instância (feriados, recesso).'
+}
+
+// ---------- VIAGEM (instância real) ----------
+
+Table viagem_instancia {
+  id uuid [pk]
+  template_id uuid [ref: > horario_template.id, null]
+  // null = veículo SOB_DEMANDA ou TAXI (criada direto, sem template)
+  veiculo_id uuid [ref: > veiculo.id, not null]
+  rota_id uuid [ref: > rota.id, not null]
+
+  partida_prevista timestamptz [not null]
+  partida_real timestamptz
+  encerrada_em timestamptz
+
+  vagas_total smallint [not null]
+  vagas_vendidas smallint [not null, default: 0]
+  // pode ultrapassar vagas_total → overbooking sinalizado
+
+  preco decimal(10,2) [not null]
+
+  status varchar(20) [not null, default: 'PROGRAMADA']
+  // PROGRAMADA, EM_ANDAMENTO, ENCERRADA, CANCELADA
+
+  // versão para controle otimista de concorrência (lock otimista do JPA)
+  versao bigint [not null, default: 0]
+
+  criado_em timestamptz [not null, default: `now()`]
+  atualizado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    veiculo_id
+    template_id
+    (veiculo_id, partida_prevista)
+    (status, partida_prevista)
+  }
+
+  Note: 'Viagem real. Vagas, passagens e webhook pendurados aqui — NÃO no template.'
+}
+
+// ---------- PASSAGEM ----------
+
+Table passagem {
+  id uuid [pk]
+  viagem_id uuid [ref: > viagem_instancia.id, not null]
+  veiculo_id uuid [ref: > veiculo.id, not null]
+  // veiculo_id desnormalizado para acelerar queries financeiras por veículo
+
+  canal varchar(20) [not null]
+  // APP, GUICHE, MANUAL
+
+  valor decimal(10,2) [not null]
+
+  // identificador da venda externa (guichê) — chave de idempotência do webhook
+  id_externo varchar(80)
+  // null para vendas via APP
+
+  status varchar(20) [not null, default: 'AGUARDANDO_PAGAMENTO']
+  // AGUARDANDO_PAGAMENTO, PAGA, CONFIRMADA, EXPIRADA, CANCELADA
+
+  // dados do passageiro são opcionais no MVP (guichê não pede)
+  passageiro_nome varchar(120)
+  passageiro_documento varchar(20)
+  passageiro_telefone varchar(20)
+
+  overbooking boolean [not null, default: false]
+  // true se foi vendida quando vagas_vendidas >= vagas_total
+
+  criado_em timestamptz [not null, default: `now()`]
+  pago_em timestamptz
+  cancelado_em timestamptz
+
+  indexes {
+    viagem_id
+    veiculo_id
+    (veiculo_id, criado_em)
+    (id_externo) [unique, name: 'uq_passagem_id_externo']
+    // unique parcial: apenas quando id_externo IS NOT NULL (CHECK no Postgres)
+    status
+  }
+
+  Note: 'Vagas decrementam aqui via trigger ou na camada de serviço. id_externo garante idempotência do webhook.'
+}
+
+// ---------- PAGAMENTO PIX ----------
+
+Table pagamento_pix {
+  id uuid [pk]
+  passagem_id uuid [ref: - passagem.id, not null]
+  // 1:1 com passagem
+
+  txid varchar(60) [unique, not null]
+  // identificador do EFÍ/Pagar.me
+  qr_code text [not null]
+  qr_code_imagem text
+  // base64 ou URL
+
+  valor decimal(10,2) [not null]
+  expira_em timestamptz [not null]
+
+  status varchar(20) [not null, default: 'PENDENTE']
+  // PENDENTE, PAGO, EXPIRADO, FALHOU
+
+  webhook_recebido_em timestamptz
+  ultimo_polling_em timestamptz
+  // se webhook não chegou, polling assume
+
+  criado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    txid
+    status
+    expira_em
+  }
+}
+
+// ---------- DESPESAS ----------
+
+Table despesa {
+  id uuid [pk]
+  veiculo_id uuid [ref: > veiculo.id, not null]
+  registrado_por_id uuid [ref: > usuario.id, not null]
+
+  categoria varchar(40) [not null]
+  // COMBUSTIVEL, MANUTENCAO, PEDAGIO, LIMPEZA, OUTROS
+
+  descricao varchar(240)
+  valor decimal(10,2) [not null]
+  data_despesa date [not null]
+  comprovante_url text
+
+  criado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    veiculo_id
+    (veiculo_id, data_despesa)
+  }
+}
+
+// ---------- WEBHOOK DA COOPERATIVA ----------
+
+Table webhook_config {
+  id uuid [pk]
+  veiculo_id uuid [ref: - veiculo.id, not null, unique]
+  // 1:1 — cada veículo tem no máximo 1 webhook config
+
+  token_acesso varchar(80) [unique, not null]
+  // gerado pelo sistema; cooperativa envia no header Authorization
+
+  ativo boolean [not null, default: true]
+  criado_em timestamptz [not null, default: `now()`]
+  ultima_chamada_em timestamptz
+
+  Note: 'Token usado pelo sistema externo da cooperativa para autenticar chamadas no nosso endpoint /api/v1/integracao/passagem-guiche.'
+}
+
+Table webhook_log {
+  id uuid [pk]
+  webhook_config_id uuid [ref: > webhook_config.id, not null]
+  veiculo_id uuid [ref: > veiculo.id, not null]
+
+  id_externo varchar(80)
+  // mesmo id_externo da passagem
+  payload_recebido jsonb [not null]
+  resposta_http smallint [not null]
+  // 200, 400, 401, 409 (duplicado), 500
+
+  passagem_id uuid [ref: > passagem.id, null]
+  // null se chamada falhou antes de criar passagem
+
+  erro text
+  recebido_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    webhook_config_id
+    veiculo_id
+    id_externo
+    recebido_em
+  }
+
+  Note: 'Histórico de toda chamada recebida no webhook. Permite debug e auditoria.'
+}
+
+// ---------- SNAPSHOT DE FECHAMENTO DE VIAGEM ----------
+
+Table snapshot_viagem {
+  id uuid [pk]
+  viagem_id uuid [ref: - viagem_instancia.id, not null, unique]
+  veiculo_id uuid [ref: > veiculo.id, not null]
+
+  // dados congelados no momento do fechamento (imutáveis)
+  rota_origem varchar(120) [not null]
+  rota_destino varchar(120) [not null]
+  partida_real timestamptz [not null]
+  encerrada_em timestamptz [not null]
+
+  total_passagens int [not null]
+  total_passagens_app int [not null]
+  total_passagens_guiche int [not null]
+  total_overbooking int [not null]
+
+  receita_bruta decimal(12,2) [not null]
+  receita_liquida decimal(12,2) [not null]
+  // bruta - taxas do gateway
+
+  fechado_por_id uuid [ref: > usuario.id, null]
+  // null = fechado automaticamente pelo job
+  fechado_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    veiculo_id
+    (veiculo_id, encerrada_em)
+  }
+
+  Note: 'Registro IMUTÁVEL do fechamento. Não atualizar — se houver erro, criar snapshot de correção referenciando o original.'
+}
+
+// ---------- COMPROVANTE ----------
+
+Table comprovante {
+  id uuid [pk]
+  passagem_id uuid [ref: - passagem.id, not null, unique]
+
+  imagem_url text [not null]
+  // S3 ou storage equivalente; PNG no formato compatível com impressão térmica
+
+  enviado_whatsapp boolean [not null, default: false]
+  enviado_em timestamptz
+
+  criado_em timestamptz [not null, default: `now()`]
+
+  Note: 'Imagem do comprovante gerada após confirmação da passagem. Reutilizada na futura impressão térmica.'
+}
+
+// ---------- AUDITORIA (transversal) ----------
+
+Table evento_auditoria {
+  id uuid [pk]
+  usuario_id uuid [ref: > usuario.id, null]
+  // null = ação do sistema (job, webhook)
+
+  entidade varchar(40) [not null]
+  // 'passagem', 'viagem_instancia', 'veiculo', etc.
+  entidade_id uuid [not null]
+  acao varchar(40) [not null]
+  // CRIADO, ATUALIZADO, CANCELADO, ENCERRADO, OVERBOOKING
+
+  dados_antes jsonb
+  dados_depois jsonb
+
+  ocorrido_em timestamptz [not null, default: `now()`]
+
+  indexes {
+    (entidade, entidade_id)
+    usuario_id
+    ocorrido_em
+  }
+
+  Note: 'Log transversal de mudanças relevantes. Não substitui snapshot_viagem — aquele é agregado, esse é granular.'
+}

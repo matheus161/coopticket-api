@@ -1,0 +1,39 @@
+C4Container
+    title Diagrama de Containers — Sistema de Gestão de Passagens (Fase 1 completa + previsão Fase 2/3)
+
+    Person(proprietario, "Proprietário", "Cadastra veículos, configura rotas/horários, vê relatórios financeiros")
+    Person(cobrador, "Cobrador / Motorista autônomo", "Vende passagens, controla vagas, lança despesas em campo")
+    Person(admin_coop, "Admin de cooperativa", "Define grade de horários e rotas da cooperativa")
+    Person(admin_plat, "Admin da plataforma", "Gestão de clientes e planos (Fase 2)")
+
+    System_Boundary(sistema, "Plataforma de Gestão de Passagens") {
+        Container(painel, "Painel Web", "React + Vite", "Configuração, relatórios financeiros e dashboards. Acessado via desktop.")
+        Container(app, "App Mobile", "React Native + Expo", "Operação em campo: vender passagem, gerar Pix, enviar comprovante, lançar despesas.")
+        Container(api, "API Back-end", "Spring Boot + Spring Security + JWT", "Regras de negócio, persistência, integração com gateway de pagamento e webhooks externos.")
+        ContainerDb(db, "Banco de Dados", "PostgreSQL 15+", "Persistência de veículos, viagens, passagens, despesas, logs de webhook e snapshots.")
+        Container(job, "Job Agendado", "Spring Scheduled", "Gera instâncias de viagem diariamente, encerra viagens vencidas, expira Pix pendentes.")
+    }
+
+    System_Ext(efi, "Gateway Pix", "EFÍ ou Pagar.me — gera QR Code e confirma pagamentos")
+    System_Ext(coop_sis, "Sistema da Cooperativa", "Sistema legado externo que vende passagens em guichê e notifica via webhook (Fase 1F)")
+    System_Ext(whatsapp, "WhatsApp", "Compartilhamento via share intent nativo do celular para envio do comprovante")
+
+    Rel(proprietario, painel, "Configura veículos e vê financeiro", "HTTPS")
+    Rel(admin_coop, painel, "Cria templates de horário", "HTTPS")
+    Rel(admin_plat, painel, "Gere clientes (Fase 2)", "HTTPS")
+    Rel(cobrador, app, "Vende passagens em campo", "HTTPS via celular")
+    Rel(proprietario, app, "Pode operar como cobrador também", "HTTPS")
+
+    Rel(painel, api, "Chamadas REST autenticadas", "JSON / JWT")
+    Rel(app, api, "Chamadas REST autenticadas", "JSON / JWT")
+
+    Rel(api, db, "Lê e escreve dados", "JDBC")
+    Rel(job, db, "Gera instâncias e fecha viagens", "JDBC")
+    Rel(job, api, "Compartilha mesmo processo Spring", "in-process")
+
+    Rel(api, efi, "Cria cobrança Pix dinâmica", "HTTPS")
+    Rel(efi, api, "Notifica pagamento confirmado", "Webhook HTTPS")
+    Rel(api, efi, "Polling de fallback (se webhook atrasar)", "HTTPS")
+
+    Rel(coop_sis, api, "Notifica venda em guichê", "Webhook HTTPS + token")
+    Rel(app, whatsapp, "Compartilha imagem do comprovante", "Share intent nativo")
