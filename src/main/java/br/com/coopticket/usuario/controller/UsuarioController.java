@@ -32,6 +32,8 @@ public class UsuarioController {
         @ApiResponse(responseCode = "400", description = "Dados inválidos",
             content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
         @ApiResponse(responseCode = "409", description = "E-mail já cadastrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponseDto.class))),
+        @ApiResponse(responseCode = "500", description = "Erro interno do servidor",
             content = @Content(schema = @Schema(implementation = ErrorResponseDto.class)))
     })
     public ResponseEntity<RegisterResponseDto> registrar(@RequestBody @Valid RegisterRequestDto body) {
