@@ -1,7 +1,9 @@
 package br.com.coopticket.infra.exception;
 
+import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
+@Getter
 public abstract class BusinessException extends RuntimeException {
 
     private final HttpStatus status;
@@ -9,9 +11,5 @@ public abstract class BusinessException extends RuntimeException {
     protected BusinessException(String message, HttpStatus status) {
         super(message);
         this.status = status;
-    }
-
-    public HttpStatus getStatus() {
-        return status;
     }
 }
