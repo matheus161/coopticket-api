@@ -14,8 +14,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,7 +39,7 @@ class UsuarioServiceUnitTest {
     void deveCriarUsuarioQuandoEmailNaoCadastrado() {
         var request = new RegisterRequestDto("João Silva", "joao@email.com", "Senha123");
 
-        when(usuarioRepository.findByEmail("joao@email.com")).thenReturn(Optional.empty());
+        when(usuarioRepository.existsByEmail("joao@email.com")).thenReturn(false);
         when(passwordEncoder.encode("Senha123")).thenReturn("hash_senha");
         when(usuarioRepository.save(any(Usuario.class))).thenAnswer(i -> i.getArgument(0));
         when(tokenService.generateToken("joao@email.com")).thenReturn("token_jwt");
@@ -56,9 +54,8 @@ class UsuarioServiceUnitTest {
     @Test
     void deveLancarExcecaoQuandoEmailJaCadastrado() {
         var request = new RegisterRequestDto("João Silva", "joao@email.com", "Senha123");
-        var usuarioExistente = new Usuario("João Silva", "joao@email.com", "hash_antiga");
 
-        when(usuarioRepository.findByEmail("joao@email.com")).thenReturn(Optional.of(usuarioExistente));
+        when(usuarioRepository.existsByEmail("joao@email.com")).thenReturn(true);
 
         assertThatThrownBy(() -> usuarioService.registrar(request))
                 .isInstanceOf(UsuarioJaCadastradoException.class)

@@ -25,7 +25,7 @@ class UsuarioServiceIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post(ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.email").value(EMAIL))
                 .andExpect(jsonPath("$.token").isNotEmpty());
 
@@ -42,7 +42,7 @@ class UsuarioServiceIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post(ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         mockMvc.perform(post(ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -116,7 +116,7 @@ class UsuarioServiceIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post(ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         var usuario = buscarUsuarioPorEmail(EMAIL);
         assertThat(usuario.getSenhaHash()).isNotEqualTo(SENHA);
@@ -129,13 +129,13 @@ class UsuarioServiceIntegrationTest extends BaseIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new RegisterRequestDto(NOME, EMAIL, SENHA))))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         mockMvc.perform(post(ENDPOINT)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 new RegisterRequestDto("Maria Silva", "maria@email.com", SENHA))))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         assertThat(usuarioRepository.count()).isEqualTo(2);
     }

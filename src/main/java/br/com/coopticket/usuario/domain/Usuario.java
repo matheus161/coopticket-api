@@ -7,7 +7,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 @Entity
@@ -35,11 +35,11 @@ public class Usuario {
 
     @CreationTimestamp
     @Column(name = "criado_em", nullable = false, updatable = false)
-    private LocalDateTime criadoEm;
+    private OffsetDateTime criadoEm;
 
     @UpdateTimestamp
     @Column(name = "atualizado_em", nullable = false)
-    private LocalDateTime atualizadoEm;
+    private OffsetDateTime atualizadoEm;
 
     public Usuario(String nome, String email, String senhaHash) {
         this.nome = nome;
