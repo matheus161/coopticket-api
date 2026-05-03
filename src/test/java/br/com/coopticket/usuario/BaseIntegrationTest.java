@@ -40,7 +40,7 @@ public abstract class BaseIntegrationTest {
         MvcResult result = mockMvc.perform(post("/usuario/registrar")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andReturn();
 
         String body = result.getResponse().getContentAsString();

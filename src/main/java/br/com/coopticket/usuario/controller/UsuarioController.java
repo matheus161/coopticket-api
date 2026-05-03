@@ -5,17 +5,18 @@ import br.com.coopticket.usuario.dto.RegisterResponseDto;
 import br.com.coopticket.usuario.service.IUsuarioService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("usuario")
+@RequestMapping("/usuario")
 @RequiredArgsConstructor
 public class UsuarioController {
     private final IUsuarioService usuarioService;
 
     @PostMapping("/registrar")
     public ResponseEntity<RegisterResponseDto> registrar(@RequestBody @Valid RegisterRequestDto body) {
-        return ResponseEntity.ok(usuarioService.registrar(body));
+        return ResponseEntity.status(HttpStatus.CREATED).body(usuarioService.registrar(body));
     }
 }

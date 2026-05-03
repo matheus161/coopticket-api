@@ -10,30 +10,28 @@ import br.com.coopticket.usuario.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.util.Optional;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class UsuarioService implements IUsuarioService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
 
     @Override
+    @Transactional
     public RegisterResponseDto registrar(RegisterRequestDto body) {
-        Optional<Usuario> existingUser = usuarioRepository.findByEmail(body.email());
-
-        if (existingUser.isPresent()) {
+        if (usuarioRepository.existsByEmail(body.email())) {
             throw new UsuarioJaCadastradoException(UsuarioConstants.EMAIL_JA_CADASTRADO);
         }
 
-        String hashedPassword = passwordEncoder.encode(body.senha());
-        Usuario createdUser = new Usuario(body.nome(), body.email(), hashedPassword);
-        usuarioRepository.save(createdUser);
+        String senhaHash = passwordEncoder.encode(body.senha());
+        Usuario novoUsuario = new Usuario(body.nome(), body.email(), senhaHash);
+        usuarioRepository.save(novoUsuario);
 
-        String token = tokenService.generateToken(createdUser.getEmail());
-
-        return new RegisterResponseDto(createdUser.getEmail(), token);
+        String token = tokenService.generateToken(novoUsuario.getEmail());
+        return new RegisterResponseDto(novoUsuario.getEmail(), token);
     }
 }
