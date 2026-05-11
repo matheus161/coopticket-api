@@ -15,6 +15,22 @@ O modelo tem **17 tabelas** organizadas em 6 grupos:
 
 ## Decisões de modelagem importantes
 
+### Soft delete em despesa com auditoria de quem excluiu
+
+A tabela `despesa` tem campos `excluida_em` (timestamp) e `excluida_por_id` (FK para usuario). Por baixo, exclusão é soft — preserva histórico completo. Por cima, UX mostra como remoção limpa (despesa some da lista).
+
+A regra de negócio "cobrador só exclui no mesmo dia" é aplicada na camada de serviço:
+
+```java
+if (despesa.getRegistradoPor() != usuarioAtual && !ehProprietario)
+    throw new SemPermissaoException("Você não pode excluir despesa de outro usuário");
+
+if (despesa.getDataDespesa() != hoje && !ehProprietario)
+    throw new SemPermissaoException("Despesa só pode ser excluída no mesmo dia");
+```
+
+Proprietário do veículo não tem essas restrições — pode excluir qualquer despesa em qualquer data.
+
 ### Veículo é o eixo central, não a cooperativa
 
 `veiculo_id` aparece em quase toda tabela operacional (`passagem`, `despesa`, `viagem_instancia`, `webhook_config`, `vinculo_cobrador`). Cooperativa é opcional (`veiculo.cooperativa_id` é nullable). Isso garante que veículos autônomos funcionem sem nenhuma cooperativa cadastrada.
