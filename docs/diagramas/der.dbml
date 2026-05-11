@@ -302,19 +302,24 @@ Table despesa {
   registrado_por_id uuid [ref: > usuario.id, not null]
 
   categoria varchar(40) [not null]
-  // COMBUSTIVEL, MANUTENCAO, PEDAGIO, LIMPEZA, OUTROS
-
   descricao varchar(240)
   valor decimal(10,2) [not null]
   data_despesa date [not null]
   comprovante_url text
+
+  // soft delete
+  excluida_em timestamptz [null]
+  excluida_por_id uuid [ref: > usuario.id, null]
 
   criado_em timestamptz [not null, default: `now()`]
 
   indexes {
     veiculo_id
     (veiculo_id, data_despesa)
+    (veiculo_id, excluida_em)
   }
+
+  Note: 'Soft delete via excluida_em. Filtro padrão: WHERE excluida_em IS NULL. Cobrador só exclui despesa própria no mesmo dia. Proprietário exclui qualquer despesa, em qualquer data.'
 }
 
 // ---------- WEBHOOK DA COOPERATIVA ----------
